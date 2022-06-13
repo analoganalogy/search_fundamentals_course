@@ -94,7 +94,11 @@ def query():
     print("query obj: {}".format(query_obj))
 
     #### Step 4.b.ii
-    response = None   # TODO: Replace me with an appropriate call to OpenSearch
+    response = opensearch.search(
+       body = query_obj,
+       index = "bbuy_products"
+    )
+
     # Postprocess results here if you so desire
 
     #print(response)
@@ -111,11 +115,99 @@ def create_query(user_query, filters, sort="_score", sortDir="desc"):
     query_obj = {
         'size': 10,
         "query": {
-            "match_all": {} # Replace me with a query that both searches and filters
+            "function_score": {
+                "query": {
+                    "bool": {
+                        "must": [
+                            {
+                                "query_string": {
+                                    "query": user_query,
+                                    "fields": [ "name^1000", "shortDescription^50", "longDescription^10", "department" ],
+                                    "phrase_slop": 3
+                                }
+                            }
+                        ],
+                        "filter": filters
+                    }
+                },
+                "boost_mode": "multiply",
+    	        "score_mode": "avg",
+                "functions": [
+                    {
+                        "field_value_factor": {
+                        "field": "salesRankLongTerm",
+                        "modifier":  "reciprocal",
+                        "missing": 100000000
+                        }
+                    },
+                    {
+                        "field_value_factor": {
+                            "field": "salesRankMediumTerm",
+                            "modifier": "reciprocal",
+                            "missing": 100000000
+                        }
+                    },
+                    {
+                        "field_value_factor": {
+                            "field": "salesRankShortTerm",
+                            "modifier": "reciprocal",
+                            "missing": 100000000
+                        }
+    	            }
+  		        ]
+            }
         },
         "aggs": {
-            #### Step 4.b.i: create the appropriate query and aggregations here
-
-        }
+            "regularPrice": {
+                "range": {
+                    "field": "regularPrice",
+                    "ranges": [
+                        {
+                            "from": 0,
+                            "to": 25,
+                            "key": "$"
+                        },
+                        {
+                            "from": 25,
+                            "to": 100,
+                            "key": "$$"
+                        },
+                        {
+                            "from": 100,
+                            "to": 250,
+                            "key": "$$$"
+                        },
+                        {
+                            "from": 250,
+                            "to": 500,
+                            "key": "$$$$"
+                        },
+                        {
+                            "from": 500,
+                            "key": "$$$$$"
+                        }
+                    ]
+                }
+            },
+            "department": {
+                "terms": { "field": "department.keyword" }
+            },
+            "missing_images": {
+                "missing": { "field": "image.keyword" }
+            }
+        },
+        "highlight": {
+            "fields": {
+                "name": { },
+                "shortDescription.keyword": { },
+                "longDescription.keyword": { }
+            }
+        },
+        "sort" : [
+            { sort : sortDir },
+            { "name.keyword": sortDir },
+            { "regularPrice": sortDir }
+        ]
     }
+
     return query_obj
